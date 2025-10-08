@@ -288,7 +288,7 @@
         <div class="button-grid">
           <button class="deep-link-btn" onclick="openDeepLink('mlwallet://')">
             🏠 Home
-            <span class="btn-label">mcashwalletqa://home</span>
+            <span class="btn-label">mlwallet://home</span>
           </button>
           
           <button class="deep-link-btn" onclick="openDeepLink('mlwallet://profile/123')">
@@ -360,34 +360,176 @@
   <script>
     let history = [];
 
-    function openDeepLink(url) {
+    // ============================================
+    // Deep Link Handler Class
+    // ============================================
+    class DeepLinkHandler {
+      constructor(options = {}) {
+        this.timeout = options.timeout || 2500;
+        this.debug = options.debug || false;
+      }
+
+      log(message, data = {}) {
+        if (this.debug) {
+          console.log(`[DeepLink] ${message}`, data);
+        }
+      }
+
+      async open(url) {
+        this.log('Attempting to open', { url });
+
+        return new Promise((resolve, reject) => {
+          let appOpened = false;
+          const startTime = Date.now();
+
+          // Create hidden iframe for more reliable detection
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.style.width = '0';
+          iframe.style.height = '0';
+
+          const cleanup = () => {
+            if (iframe.parentNode) {
+              iframe.parentNode.removeChild(iframe);
+            }
+            window.removeEventListener('blur', onBlur);
+            window.removeEventListener('pagehide', onPageHide);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+          };
+
+          const onBlur = () => {
+            if (!appOpened) {
+              appOpened = true;
+              const timeElapsed = Date.now() - startTime;
+              this.log('App opened via blur', { timeElapsed });
+              cleanup();
+              resolve({ 
+                success: true, 
+                method: 'blur',
+                timeElapsed 
+              });
+            }
+          };
+
+          const onPageHide = () => {
+            if (!appOpened) {
+              appOpened = true;
+              const timeElapsed = Date.now() - startTime;
+              this.log('App opened via pagehide', { timeElapsed });
+              cleanup();
+              resolve({ 
+                success: true, 
+                method: 'pagehide',
+                timeElapsed 
+              });
+            }
+          };
+
+          const onVisibilityChange = () => {
+            if (document.hidden && !appOpened) {
+              appOpened = true;
+              const timeElapsed = Date.now() - startTime;
+              this.log('App opened via visibility', { timeElapsed });
+              cleanup();
+              resolve({ 
+                success: true, 
+                method: 'visibility',
+                timeElapsed 
+              });
+            }
+          };
+
+          // Add listeners
+          window.addEventListener('blur', onBlur);
+          window.addEventListener('pagehide', onPageHide);
+          document.addEventListener('visibilitychange', onVisibilityChange);
+
+          // Try to open via iframe first
+          document.body.appendChild(iframe);
+          iframe.src = url;
+
+          // Fallback to direct navigation
+          setTimeout(() => {
+            if (!appOpened) {
+              window.location.href = url;
+            }
+          }, 500);
+
+          // Final timeout check
+          setTimeout(() => {
+            cleanup();
+            
+            if (!appOpened) {
+              const timeElapsed = Date.now() - startTime;
+              this.log('App not detected', { timeElapsed });
+              reject({
+                success: false,
+                error: 'App not found or not installed',
+                timeElapsed
+              });
+            }
+          }, this.timeout);
+        });
+      }
+    }
+
+    // Initialize handler
+    const deepLinkHandler = new DeepLinkHandler({
+      timeout: 2500,
+      debug: true
+    });
+
+    // ============================================
+    // Open Deep Link Function
+    // ============================================
+    async function openDeepLink(url) {
       const result = document.getElementById('result');
       result.style.display = 'block';
       result.className = 'result';
       result.innerHTML = `
-        <strong>✅ Opening Deep Link</strong>
+        <strong>🔄 Attempting to open app...</strong>
         <div>URL: <code>${url}</code></div>
         <div style="margin-top: 10px; font-size: 14px; opacity: 0.8;">
-          If the app doesn't open, make sure:
-          <ul style="margin-top: 5px; margin-left: 20px;">
-            <li>The app is installed</li>
-            <li>Deep linking is configured</li>
-            <li>You clicked "Open" in the browser prompt</li>
-          </ul>
+          Checking if MCash Wallet is installed...
         </div>
       `;
 
       // Add to history
       addToHistory(url);
 
-      // Try to open the deep link
       try {
-        window.location.href = url;
+        const response = await deepLinkHandler.open(url);
+        
+        result.className = 'result';
+        result.innerHTML = `
+          <strong>✅ App Opened Successfully!</strong>
+          <div>URL: <code>${url}</code></div>
+          <div style="margin-top: 10px; font-size: 14px; color: #4CAF50;">
+            <div>✓ The MCash Wallet app has been opened</div>
+            <div style="margin-top: 5px; opacity: 0.8;">Method: ${response.method} | Time: ${response.timeElapsed}ms</div>
+          </div>
+        `;
+
       } catch (error) {
         result.className = 'result error';
         result.innerHTML = `
-          <strong>❌ Error Opening Link</strong>
-          <div>Error: <code>${error.message}</code></div>
+          <strong>❌ App Not Found</strong>
+          <div>URL: <code>${url}</code></div>
+          <div style="margin-top: 10px; font-size: 14px;">
+            The MCash Wallet app might not be installed or deep linking is not configured.
+            <ul style="margin-top: 8px; margin-left: 20px; line-height: 1.8;">
+              <li>Make sure the app is installed on this device</li>
+              <li>Check that deep linking is properly configured</li>
+              <li>URL scheme should be: <code>mlwallet://</code></li>
+              <li>Try clicking "Open" if a browser prompt appears</li>
+              <li>On iOS, check Info.plist for CFBundleURLSchemes</li>
+              <li>On Android, check AndroidManifest.xml for intent-filter</li>
+            </ul>
+            <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 3px solid #ffc107;">
+              <strong>💡 Want to download the app?</strong><br>
+              <a href="https://mcashwallet.com/download" style="color: #856404; text-decoration: underline;">Click here to download MCash Wallet</a>
+            </div>
+          </div>
         `;
       }
     }
@@ -403,7 +545,7 @@
         return;
       }
 
-      if (!url.startsWith('mcashwalletqa://')) {
+      if (!url.startsWith('mlwallet://')) {
         result.style.display = 'block';
         result.className = 'result error';
         result.innerHTML = `<strong>⚠️ Warning</strong><div>URL should start with <code>mlwallet://</code></div>`;
