@@ -3,19 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MCash Wallet Deep Link Tester</title>
+  <title>MCash Wallet Deep Link</title>
 </head>
 <body>
   <script>
-    let history = [];
+    // ============================================
+    // Browser Detection
+    // ============================================
+    function detectBrowser() {
+      const ua = navigator.userAgent || navigator.vendor || window.opera;
+      return {
+        isSafari: /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/.test(ua),
+        isIOS: /iPhone|iPad|iPod/.test(ua) && !window.MSStream,
+        isAndroid: /android/i.test(ua)
+      };
+    }
 
     // ============================================
     // Deep Link Handler Class
     // ============================================
     class DeepLinkHandler {
       constructor(options = {}) {
-        this.timeout = options.timeout || 2500;
+        this.timeout = options.timeout || 3000;
         this.debug = options.debug || false;
+        this.iosStoreUrl = options.iosStoreUrl || 'https://apps.apple.com/ph/app/mcash-wallet/id962204987';
+        this.androidStoreUrl = options.androidStoreUrl || 'https://play.google.com/store/apps/details?id=com.mlhuillier.mlwallet&hl=en';
+        this.browser = detectBrowser();
       }
 
       log(message, data = {}) {
@@ -25,17 +38,19 @@
       }
 
       async open(url) {
-        this.log('Attempting to open', { url });
+        this.log('Attempting to open', { url, browser: this.browser });
+
+        // Safari iOS needs special handling
+        if (this.browser.isSafari && this.browser.isIOS) {
+          return this.openInSafari(url);
+        }
 
         return new Promise((resolve, reject) => {
           let appOpened = false;
           const startTime = Date.now();
 
-          // Create hidden iframe for more reliable detection
           const iframe = document.createElement('iframe');
           iframe.style.display = 'none';
-          iframe.style.width = '0';
-          iframe.style.height = '0';
 
           const cleanup = () => {
             if (iframe.parentNode) {
@@ -49,129 +64,265 @@
           const onBlur = () => {
             if (!appOpened) {
               appOpened = true;
-              const timeElapsed = Date.now() - startTime;
-              this.log('App opened via blur', { timeElapsed });
               cleanup();
-              resolve({ 
-                success: true, 
-                method: 'blur',
-                timeElapsed 
-              });
+              clearTimeout(timeoutId);
+              this.log('App opened via blur');
+              resolve({ success: true, method: 'blur' });
             }
           };
 
           const onPageHide = () => {
             if (!appOpened) {
               appOpened = true;
-              const timeElapsed = Date.now() - startTime;
-              this.log('App opened via pagehide', { timeElapsed });
               cleanup();
-              resolve({ 
-                success: true, 
-                method: 'pagehide',
-                timeElapsed 
-              });
+              clearTimeout(timeoutId);
+              this.log('App opened via pagehide');
+              resolve({ success: true, method: 'pagehide' });
             }
           };
 
           const onVisibilityChange = () => {
             if (document.hidden && !appOpened) {
               appOpened = true;
-              const timeElapsed = Date.now() - startTime;
-              this.log('App opened via visibility', { timeElapsed });
               cleanup();
-              resolve({ 
-                success: true, 
-                method: 'visibility',
-                timeElapsed 
-              });
+              clearTimeout(timeoutId);
+              this.log('App opened via visibility');
+              resolve({ success: true, method: 'visibility' });
             }
           };
 
-          // Add listeners
           window.addEventListener('blur', onBlur);
           window.addEventListener('pagehide', onPageHide);
           document.addEventListener('visibilitychange', onVisibilityChange);
 
-          // Try to open via iframe first
           document.body.appendChild(iframe);
           iframe.src = url;
 
-          // Fallback to direct navigation
           setTimeout(() => {
             if (!appOpened) {
               window.location.href = url;
             }
           }, 500);
 
-          // Final timeout check
-          setTimeout(() => {
+          const timeoutId = setTimeout(() => {
             cleanup();
-            
             if (!appOpened) {
-              const timeElapsed = Date.now() - startTime;
-              this.log('App not detected', { timeElapsed });
-                window.location.href=""
-                const androidUrl = 'https://play.google.com/store/apps/details?id=com.mlhuillier.mlwallet&hl=en';
-
-                const iosUrl = 'https://apps.apple.com/ph/app/mcash-wallet/id962204987';
-                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-                console.log("USER AGENt",userAgent)
-                if (/android/i.test(userAgent)) {
-                  window.location.href = androidUrl;
-                } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-                  window.location.href = iosUrl;
-                } else {
-                  // Fallback for other platforms
-                  window.location.href = androidUrl; // or any other page
-                }
-              reject({
-                success: false,
-                error: 'App not found or not installed',
-                timeElapsed
-              });
+              this.log('Timeout - app not opened');
+              reject({ success: false, error: 'timeout' });
             }
           }, this.timeout);
         });
       }
-    }
 
-    // Initialize handler
-    const deepLinkHandler = new DeepLinkHandler({
-      timeout: 2500,
-      debug: true
-    });
+      openInSafari(url) {
+        return new Promise((resolve, reject) => {
+          this.log('Using Safari iOS method');
+          
+          let appOpened = false;
+          let redirected = false;
+          const startTime = Date.now();
 
-    // ============================================
-    // Open Deep Link Function
-    // ============================================
-    async function openDeepLink(url) {
-    
-      try {
-        const response = await deepLinkHandler.open(url);
-        console.log('Deep link response:', response);
+          const onBlur = () => {
+            if (!appOpened && !redirected) {
+              appOpened = true;
+              cleanup();
+              this.log('Safari: App opened via blur');
+              resolve({ success: true, method: 'safari-blur' });
+            }
+          };
 
-      } catch (error) {
-            const androidUrl = 'https://play.google.com/store/apps/details?id=com.mlhuillier.mlwallet&hl=en';
+          const onVisibilityChange = () => {
+            if (document.hidden && !appOpened && !redirected) {
+              appOpened = true;
+              cleanup();
+              this.log('Safari: App opened via visibility');
+              resolve({ success: true, method: 'safari-visibility' });
+            }
+          };
 
-            const iosUrl = 'https://apps.apple.com/ph/app/mcash-wallet/id962204987';
-            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-            console.log("USER AGENt",userAgent)
-                if (/android/i.test(userAgent)) {
-                  window.location.href = androidUrl;
-                } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-                  window.location.href = iosUrl;
-                } else {
-                  // Fallback for other platforms
-                  window.location.href = androidUrl; // or any other page
+          const cleanup = () => {
+            window.removeEventListener('blur', onBlur);
+            window.removeEventListener('pagehide', onBlur);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            clearTimeout(timeoutId);
+            clearTimeout(errorTimeoutId);
+          };
+
+          window.addEventListener('blur', onBlur);
+          window.addEventListener('pagehide', onBlur);
+          document.addEventListener('visibilitychange', onVisibilityChange);
+
+          // Safari requires direct navigation
+          this.log('Safari: Navigating to', url);
+          
+          try {
+            window.location.href = url;
+          } catch (error) {
+            this.log('Safari: Navigation error', error);
+            cleanup();
+            reject({ success: false, error: 'navigation-error' });
+            return;
           }
+
+          // Very short timeout to catch immediate errors (like "invalid address")
+          const errorTimeoutId = setTimeout(() => {
+            if (!appOpened && !redirected) {
+              this.log('Safari: Quick timeout - likely invalid scheme');
+              redirected = true;
+              cleanup();
+              reject({ success: false, error: 'invalid-scheme' });
+            }
+          }, 500);
+
+          // Longer timeout for user interaction with dialog
+          const timeoutId = setTimeout(() => {
+            if (!appOpened && !redirected) {
+              cleanup();
+              this.log('Safari: Timeout - redirecting to store');
+              reject({ success: false, error: 'safari-timeout' });
+            }
+          }, this.timeout);
+        });
+      }
+
+      redirectToStore() {
+        const browser = detectBrowser();
+        const storeUrl = browser.isIOS ? this.iosStoreUrl : this.androidStoreUrl;
+        this.log('Redirecting to store:', storeUrl);
+        
+        // Immediate redirect - no delay needed
+        window.location.href = storeUrl;
       }
     }
 
+    // ============================================
+    // Initialize and Open Deep Link
+    // ============================================
+    const deepLinkHandler = new DeepLinkHandler({
+      timeout: 2000, // Shorter timeout for faster redirect
+      debug: true,
+      iosStoreUrl: 'https://apps.apple.com/ph/app/mcash-wallet/id962204987',
+      androidStoreUrl: 'https://play.google.com/store/apps/details?id=com.mlhuillier.mlwallet&hl=en'
+    });
 
+    async function openDeepLink(url) {
+      console.log('=== Starting Deep Link Process ===');
+      console.log('URL:', url);
+      console.log('User Agent:', navigator.userAgent);
+      
+      try {
+        const response = await deepLinkHandler.open(url);
+        console.log('✅ SUCCESS: App opened!', response);
+        
+        // Update UI to show success
+        document.body.innerHTML = `
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            text-align: center;
+            padding: 20px;
+          ">
+            <div>
+              <div style="font-size: 64px; margin-bottom: 20px;">✅</div>
+              <h1 style="margin: 0 0 10px 0;">App Opened!</h1>
+              <p style="opacity: 0.9; margin: 0;">MCash Wallet is now open</p>
+            </div>
+          </div>
+        `;
+        
+      } catch (error) {
+        console.log('❌ FAILED: App not opened', error);
+        console.log('Reason:', error.error);
+        console.log('Redirecting to app store NOW...');
+        
+        // Show redirecting message
+        document.body.innerHTML = `
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+            text-align: center;
+            padding: 20px;
+          ">
+            <div>
+              <div style="font-size: 48px; margin-bottom: 20px;">🏪</div>
+              <h1 style="margin: 0 0 10px 0;">Opening App Store...</h1>
+              <p style="opacity: 0.9; margin: 0;">Please wait</p>
+            </div>
+          </div>
+        `;
+        
+        // Redirect to appropriate store immediately
+        deepLinkHandler.redirectToStore();
+      }
+    }
 
-    // Initialize
-    openDeepLink('mlwallet://');
+    // ============================================
+    // AUTO-START when page loads
+    // ============================================
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('Page loaded, attempting deep link...');
+      
+      // IMPORTANT: Change this to your actual deep link scheme
+      // Examples:
+      // - mlwallet://
+      // - mcashwalletqa://
+      // - mlwallet://home
+      // - mlwallet://profile/123
+      
+      openDeepLink('mlwallet://');
+    });
+
+    // Optional: Show loading message
+    document.body.innerHTML = `
+      <div style="
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        text-align: center;
+        padding: 20px;
+      ">
+        <div>
+          <div style="font-size: 48px; margin-bottom: 20px;">💰</div>
+          <h1 style="margin: 0 0 10px 0;">Opening MCash Wallet...</h1>
+          <p style="opacity: 0.9; margin: 0;">Please wait</p>
+          <div style="
+            margin-top: 20px;
+            width: 200px;
+            height: 4px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+            overflow: hidden;
+          ">
+            <div style="
+              width: 100%;
+              height: 100%;
+              background: white;
+              animation: progress 2s ease-in-out infinite;
+            "></div>
+          </div>
+        </div>
+      </div>
+      <style>
+        @keyframes progress {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+      </style>
+    `;
   </script>
 </body>
 </html>
