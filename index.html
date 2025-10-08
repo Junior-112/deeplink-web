@@ -462,6 +462,20 @@
             if (!appOpened) {
               const timeElapsed = Date.now() - startTime;
               this.log('App not detected', { timeElapsed });
+                window.location.href=""
+                const androidUrl = 'https://play.google.com/store/apps/details?id=com.mlhuillier.mlwallet&hl=en';
+
+                const iosUrl = 'https://apps.apple.com/ph/app/mcash-wallet/id962204987';
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                console.log("USER AGENt",userAgent)
+                if (/android/i.test(userAgent)) {
+                  window.location.href = androidUrl;
+                } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+                  window.location.href = iosUrl;
+                } else {
+                  // Fallback for other platforms
+                  window.location.href = androidUrl; // or any other page
+                }
               reject({
                 success: false,
                 error: 'App not found or not installed',
@@ -494,8 +508,6 @@
         </div>
       `;
 
-      // Add to history
-      addToHistory(url);
 
       try {
         const response = await deepLinkHandler.open(url);
@@ -535,7 +547,7 @@
     }
 
     function openCustomLink() {
-      const url = document.getElementById('customUrl').value.trim();
+      const url = 'mlwallet://'
       const result = document.getElementById('result');
 
       if (!url) {
@@ -606,7 +618,7 @@
     });
 
     // Initialize
-    updateHistoryDisplay();
+    openDeepLink('mlwallet://');
   </script>
 </body>
 </html>
